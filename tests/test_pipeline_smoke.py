@@ -58,6 +58,33 @@ def test_finding_confidence_is_bounded():
         Finding(fact="x", classification="fact", confidence=1.5)
 
 
+def test_contradiction_verdict_coercion():
+    """ContradictionVerdict uses a yes/no enum (not a bool) and exposes is_contradiction.
+
+    Regression guard: a raw ``bool`` field caused Groq to reject the tool call server-side
+    (``expected boolean, but got string``). The enum removes that failure mode; the ``mode=before``
+    normaliser is defense-in-depth for any non-tool-calling path.
+    """
+    from backend.llm import ContradictionVerdict
+
+    assert ContradictionVerdict(verdict="yes").is_contradiction is True
+    assert ContradictionVerdict(verdict="no").is_contradiction is False
+
+    # Normaliser maps booleans and common variants onto the enum.
+    assert ContradictionVerdict(verdict=True).verdict == "yes"
+    assert ContradictionVerdict(verdict=False).verdict == "no"
+    assert ContradictionVerdict(verdict="FALSE").is_contradiction is False
+    assert ContradictionVerdict(verdict="No").is_contradiction is False
+
+    # The generated schema exposes a string enum, not a boolean; is_contradiction is a property.
+    schema = ContradictionVerdict.model_json_schema()
+    assert schema["properties"]["verdict"]["enum"] == ["yes", "no"]
+    assert "is_contradiction" not in schema["properties"]
+
+    with pytest.raises(ValueError):
+        ContradictionVerdict(verdict="maybe")
+
+
 def test_db_helpers_roundtrip():
     """The additive DB helpers persist and read back correctly (no LLM involved)."""
     from backend.database import (
