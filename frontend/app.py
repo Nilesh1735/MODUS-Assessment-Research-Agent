@@ -54,13 +54,13 @@ st.session_state.setdefault("question", "")
 # ── Sidebar: connection + diagnostics ────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ Connection")
-    api_url = st.text_input("API base URL", value=DEFAULT_API_URL).rstrip("/")
-    api_key = st.text_input(
-        "API key (X-API-Key)",
-        value=DEFAULT_API_KEY,
-        type="password",
-        help="Loaded from INTERNAL_API_KEY in .env; override here if needed.",
-    )
+
+    # Both the API base URL and the API key are read silently from the environment (.env) and are
+    # never rendered as inputs — nothing environment-specific or sensitive appears on screen.
+    api_url = DEFAULT_API_URL.rstrip("/")
+    api_key = DEFAULT_API_KEY
+    if not api_key:
+        st.error("INTERNAL_API_KEY is not set in `.env`. Add it and restart the app to run research.")
 
     if st.button("Check backend health", use_container_width=True):
         try:
@@ -114,7 +114,7 @@ if run_clicked:
     if len(q) < 3:
         st.warning("Please enter a research question (at least 3 characters).")
     elif not api_key:
-        st.warning("Please provide the API key in the sidebar.")
+        st.error("INTERNAL_API_KEY is not set in `.env`. Add it and restart the app.")
     else:
         with st.spinner(
             "Running multi-step research (search → grade → extract → detect contradictions → "
@@ -141,7 +141,7 @@ if run_clicked:
             st.session_state.elapsed = elapsed
         elif resp.status_code == 401:
             st.session_state.result = None
-            st.error("Authentication failed (401). Check the API key in the sidebar.")
+            st.error("Authentication failed (401). The INTERNAL_API_KEY in this app's `.env` does not match the server's key.")
         elif resp.status_code == 429:
             st.warning("Rate limit exceeded (429). Please wait a moment and try again.")
         elif resp.status_code == 422:
