@@ -267,10 +267,6 @@ api_key = DEFAULT_API_KEY
 # ── Sidebar: status + diagnostics only (no URL / key inputs) ──────────────────
 with st.sidebar:
     st.header("System")
-    st.caption(
-        "The API base URL and key are read silently from the environment (.env) and never "
-        "rendered as inputs, so nothing sensitive appears on screen."
-    )
 
     if api_key:
         st.markdown(
@@ -293,13 +289,6 @@ with st.sidebar:
                 st.error(f"Health check failed: HTTP {r.status_code}")
         except requests.exceptions.RequestException as exc:
             st.error(f"Cannot reach backend at {api_url}\n\n{exc}")
-
-    st.divider()
-    st.caption(
-        "Pipeline: query decomposition, web search, relevance grading, finding extraction, "
-        "contradiction detection, and synthesis. Every finding is stored with its source, and the "
-        "report cites sources inline as [n]."
-    )
 
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
