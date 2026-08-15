@@ -35,7 +35,7 @@ def query_gen(state: ResearchState) -> dict:
     logger.info("[query_gen] session=%s decomposing question", session_id)
 
     try:
-        result = structured_llm(SubQueries).invoke(
+        result = structured_llm(SubQueries, max_tokens=config.QUERY_GEN_MAX_TOKENS).invoke(
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(

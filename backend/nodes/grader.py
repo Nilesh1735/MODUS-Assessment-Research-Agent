@@ -13,6 +13,7 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from backend import config
 from backend.database import insert_source
 from backend.llm import GradedDocument, structured_llm
 from backend.state import Document, GradedDoc, ResearchState
@@ -32,7 +33,7 @@ _SYSTEM_PROMPT = (
 
 def _grade_document(question: str, doc: Document) -> GradedDocument:
     excerpt = (doc["content"] or "")[:_GRADE_EXCERPT_CHARS]
-    return structured_llm(GradedDocument).invoke(
+    return structured_llm(GradedDocument, max_tokens=config.GRADER_MAX_TOKENS).invoke(
         [
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(

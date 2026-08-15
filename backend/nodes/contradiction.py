@@ -34,7 +34,7 @@ _SYSTEM_PROMPT = (
 
 
 def _check_conflict(fact_a: str, fact_b: str) -> ContradictionVerdict:
-    return structured_llm(ContradictionVerdict).invoke(
+    return structured_llm(ContradictionVerdict, max_tokens=config.CONTRADICTION_MAX_TOKENS).invoke(
         [
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(

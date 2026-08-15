@@ -34,7 +34,7 @@ _SYSTEM_PROMPT = (
 
 def _extract_from_document(question: str, doc: GradedDoc) -> ExtractedFindings:
     content = (doc["content"] or "")[: config.MAX_CONTENT_CHARS]
-    return structured_llm(ExtractedFindings).invoke(
+    return structured_llm(ExtractedFindings, max_tokens=config.EXTRACTOR_MAX_TOKENS).invoke(
         [
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(

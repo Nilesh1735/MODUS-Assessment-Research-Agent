@@ -16,6 +16,7 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from backend import config
 from backend.database import (
     get_contradictions,
     get_findings,
@@ -111,7 +112,7 @@ def synthesizer(state: ResearchState) -> dict:
     )
 
     try:
-        result = structured_llm(SynthesizedReport).invoke(
+        result = structured_llm(SynthesizedReport, max_tokens=config.SYNTHESIZER_MAX_TOKENS).invoke(
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(
