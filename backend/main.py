@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
-    title="Modus Enterprise Research Agent API",
+    title="Modus Enterprise AI Research Agent API",
     version="1.0.0",
     description="Authenticated API for running structured, citation-traceable enterprise research.",
     lifespan=lifespan,
