@@ -30,6 +30,10 @@ EMBEDDING_DIM = 384  # sentence-transformers all-MiniLM-L6-v2
 def get_connection():
     conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL;")
+    # Wait up to 5s for a competing writer instead of raising 'database is locked' immediately.
+    conn.execute("PRAGMA busy_timeout=5000;")
+    # SQLite ignores declared REFERENCES unless this is enabled per-connection.
+    conn.execute("PRAGMA foreign_keys=ON;")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
