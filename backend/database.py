@@ -9,6 +9,7 @@ Handles all persistence for the Modus Research Agent:
 import os
 import sqlite3
 import logging
+import threading
 import numpy as np
 from pathlib import Path
 from contextlib import contextmanager
@@ -250,6 +251,11 @@ class FAISSStore:
 
     def __init__(self, index_path: str = FAISS_INDEX_PATH, dim: int = EMBEDDING_DIM):
         self._index_path = index_path
+        # Guards the read-modify-write in add() (ntotal -> add -> persist) and serializes it
+        # against search(). FastAPI dispatches run_research() to a threadpool, so two concurrent
+        # requests could otherwise interleave here — both reading the same ntotal and colliding
+        # on faiss_index_id, or corrupting the on-disk index by writing it simultaneously.
+        self._lock = threading.Lock()
         Path(index_path).parent.mkdir(parents=True, exist_ok=True)
         if Path(index_path).exists():
             self._index = faiss.read_index(index_path)
@@ -260,17 +266,19 @@ class FAISSStore:
 
     def add(self, embedding: np.ndarray) -> int:
         vec = embedding.reshape(1, -1).astype("float32")
-        row_id = self._index.ntotal
-        self._index.add(vec)
-        self._persist()
+        with self._lock:
+            row_id = self._index.ntotal
+            self._index.add(vec)
+            self._persist()
         return row_id
 
     def search(self, embedding: np.ndarray, k: int = 5) -> tuple[np.ndarray, np.ndarray]:
-        if self._index.ntotal == 0:
-            return np.array([]), np.array([])
         vec = embedding.reshape(1, -1).astype("float32")
-        k = min(k, self._index.ntotal)
-        distances, indices = self._index.search(vec, k)
+        with self._lock:
+            if self._index.ntotal == 0:
+                return np.array([]), np.array([])
+            k = min(k, self._index.ntotal)
+            distances, indices = self._index.search(vec, k)
         return distances[0], indices[0]
 
     def _persist(self) -> None:
