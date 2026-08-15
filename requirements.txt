@@ -13,6 +13,7 @@ langsmith
 slowapi
 streamlit
 httpx
+requests
 pytest
 pytest-asyncio
 numpy
