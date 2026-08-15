@@ -110,16 +110,45 @@ class ExtractedFindings(BaseModel):
 
 
 class ContradictionVerdict(BaseModel):
-    """LLM verdict on whether two semantically-similar findings actually conflict."""
+    """
+    LLM verdict on whether two semantically-similar findings actually conflict.
 
-    is_contradiction: bool = Field(
+    The verdict is a closed ``Literal["yes", "no"]`` string, not a raw ``bool``. Groq validates
+    tool-call arguments against the generated JSON schema *server-side* and rejects mismatches with
+    a 400 before the response reaches us — and tool-calling models frequently emit ``"false"`` (a
+    string) for a boolean field, which triggers exactly that rejection. A closed enum sidesteps the
+    problem (mirroring the proven :class:`GradedDocument` pattern); ``is_contradiction`` remains
+    available as a computed property so call sites are unaffected.
+    """
+
+    verdict: Literal["yes", "no"] = Field(
         ...,
-        description="True only if the two findings make claims that cannot both be true.",
+        description="'yes' if the two findings make claims that cannot both be true, else 'no'.",
     )
     explanation: str = Field(
         default="",
         description="Brief explanation of the conflict, or why there is none.",
     )
+
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def _normalise_verdict(cls, value: object) -> object:
+        # Defense-in-depth for any non-tool-calling path (e.g. JSON mode): coerce booleans and
+        # common variants onto the enum. On the tool-calling path Groq validates the enum itself.
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        if isinstance(value, str):
+            v = value.strip().lower()
+            if v in {"yes", "true", "y", "contradiction", "contradictory"}:
+                return "yes"
+            if v in {"no", "false", "n", "none", "consistent"}:
+                return "no"
+        return value
+
+    @property
+    def is_contradiction(self) -> bool:
+        """True when the two findings genuinely conflict."""
+        return self.verdict == "yes"
 
 
 class SynthesizedReport(BaseModel):
@@ -139,31 +168,43 @@ class SynthesizedReport(BaseModel):
 # LLM factory
 # ─────────────────────────────────────────────────────────────────────────────
 
-@lru_cache(maxsize=1)
-def get_llm() -> ChatGroq:
+@lru_cache(maxsize=8)
+def get_llm(max_tokens: int) -> ChatGroq:
     """
-    Build (once) and return the shared ChatGroq client.
+    Build (once per ``max_tokens`` budget) and return a shared ChatGroq client.
 
-    Raises a clear error if ``GROQ_API_KEY`` is missing, rather than failing deep inside a node.
+    ``max_tokens`` is part of the cache key because Groq counts reserved output tokens against the
+    per-minute limit, so nodes request only the budget they need (see ``structured_llm``). A small
+    set of budgets means only a handful of cached clients. Raises a clear error if ``GROQ_API_KEY``
+    is missing, rather than failing deep inside a node.
     """
     if not os.getenv("GROQ_API_KEY"):
         raise RuntimeError(
             "GROQ_API_KEY is not set. Add it to your .env before running the research pipeline."
         )
-    logger.info("Initialising ChatGroq (model=%s, temperature=%s)", config.GROQ_MODEL, config.LLM_TEMPERATURE)
+    logger.info(
+        "Initialising ChatGroq (model=%s, temperature=%s, max_tokens=%s)",
+        config.GROQ_MODEL,
+        config.LLM_TEMPERATURE,
+        max_tokens,
+    )
     return ChatGroq(
         model=config.GROQ_MODEL,
         temperature=config.LLM_TEMPERATURE,
-        max_tokens=config.LLM_MAX_TOKENS,
+        max_tokens=max_tokens,
         timeout=config.LLM_TIMEOUT_SECONDS,
-        max_retries=2,
+        max_retries=config.LLM_MAX_RETRIES,
     )
 
 
-def structured_llm(schema: type[BaseModel]):
+def structured_llm(schema: type[BaseModel], max_tokens: int | None = None):
     """
     Return a runnable that invokes the LLM and yields a validated instance of ``schema``.
 
-    Usage:  ``result: SubQueries = structured_llm(SubQueries).invoke(messages)``
+    ``max_tokens`` bounds this call's reserved output (defaults to ``config.LLM_MAX_TOKENS``); pass
+    a per-node budget to keep small calls from tripping Groq's per-minute token limit.
+
+    Usage:  ``result: SubQueries = structured_llm(SubQueries, max_tokens=512).invoke(messages)``
     """
-    return get_llm().with_structured_output(schema)
+    resolved = config.LLM_MAX_TOKENS if max_tokens is None else max_tokens
+    return get_llm(resolved).with_structured_output(schema)
