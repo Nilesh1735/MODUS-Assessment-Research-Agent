@@ -83,6 +83,7 @@ Then edit `.env`:
 | `GROQ_API_KEY` | ✅ | LLM inference (Llama 3.3 70B on Groq). |
 | `TAVILY_API_KEY` | ✅ | Live web search. |
 | `INTERNAL_API_KEY` | ✅ | Shared secret between the UI and API. Generate one with:<br>`python -c "import secrets; print(secrets.token_hex(32))"` |
+| `GROQ_MODEL` | optional | Groq model to use. Default `llama-3.3-70b-versatile`; change to swap tiers/providers. |
 | `LANGCHAIN_API_KEY` / `LANGCHAIN_TRACING_V2` / `LANGCHAIN_PROJECT` | optional | LangSmith tracing. |
 | `API_BASE_URL` | optional | Where the UI reaches the API. Default `http://127.0.0.1:8000`. |
 | `API_TIMEOUT_SECONDS` | optional | UI request timeout. Default `300`. |
@@ -145,6 +146,31 @@ Both paths are git-ignored so local state never leaks into the repository.
 
 ---
 
+## Data model
+
+All research state lives in **SQLite (six tables)** and is mirrored into a **FAISS** vector index.
+Every table links back to a `research_sessions` row, so one run — question, sub-queries, sources,
+findings, contradictions, and report — is a single connected graph keyed on `session_id`.
+
+| Table | Key columns | Links to | Purpose |
+|-------|-------------|----------|---------|
+| `research_sessions` | `id`, `question`, `status`, `created_at` | — | One row per research run. |
+| `sub_queries` | `id`, `session_id`, `query` | → `research_sessions` | The decomposed search queries. |
+| `sources` | `id`, `session_id`, `url`, `title`, `raw_content`, `relevance_score` | → `research_sessions` | Every web document collected (relevant or not). |
+| `findings` | `id`, `session_id`, `source_id`, `fact`, `classification`, `confidence`, `faiss_index_id` | → `research_sessions`, `sources` | Atomic extracted claims; `faiss_index_id` maps to the vector store. |
+| `contradictions` | `id`, `session_id`, `finding_a_id`, `finding_b_id`, `explanation`, `similarity` | → `research_sessions`, `findings` ×2 | Detected conflicts between two findings. |
+| `reports` | `id`, `session_id` (UNIQUE), `content` | → `research_sessions` | Final Markdown report (upserted, so re-runs are idempotent). |
+
+**Vector store.** FAISS (`IndexFlatL2`, 384-dim, cosine via L2-normalised vectors) holds one vector
+per finding. The link is bidirectional: `findings.faiss_index_id` stores the vector's row id, and
+`get_finding_by_faiss_id()` reverse-maps a FAISS hit back to its finding — this is how the
+contradiction node turns a semantic-similarity neighbour into a concrete, cited claim.
+
+**Traceability chain:** report `[n]` → `findings.source_id` → `sources.url`. Every sentence in a
+report walks back to the exact URL it came from.
+
+---
+
 ## The "1,000 records tomorrow" question
 
 **Honest answer:** the current design is correct and durable for the assignment's scale (a single
@@ -175,6 +201,87 @@ rewrite. Model throughput (Groq free-tier daily token ceiling) is handled today 
 
 ---
 
+## External services & free-tier contingency
+
+Only **two** operations leave the machine — LLM inference and web search. Everything else
+(embeddings, vector index, relational store, API, UI) runs locally with no key and no external
+dependency. Both external services are on free tiers today, and both are deliberately isolated so
+they can be swapped — or replaced with a fully local alternative — without touching the graph.
+
+**Groq (LLM inference) — free tier, per-minute + daily token limits.**
+The model is reached only through `get_llm()` in [backend/llm.py](backend/llm.py); the six nodes are
+model-agnostic (they only call `structured_llm(schema)`). If Groq becomes paid or unavailable:
+- switch tiers or providers by changing one env var / factory — `GROQ_MODEL` is already
+  env-configurable, and `ChatGroq` can be replaced with any OpenAI-compatible client (OpenAI,
+  Together, Fireworks) without editing a single node; **or**
+- run **fully local — no key, no cost** — with Ollama or vLLM serving Llama 3.x / Qwen. The
+  structured-output contract is identical.
+
+**Tavily (web search) — free tier (~1,000 searches/month).**
+Exactly one node, [backend/nodes/web_search.py](backend/nodes/web_search.py), talks to Tavily. If it
+becomes paid or unavailable, replace that single client with the Brave Search API, SerpAPI, the
+keyless `duckduckgo-search` package, or a self-hosted SearXNG. Nothing else in the graph, data
+layer, or report logic changes.
+
+**Bottom line:** there is no lock-in. The daily free quota is stretched by the per-node `max_tokens`
+budgets in [backend/config.py](backend/config.py), and either external service can be moved to a
+local, zero-cost implementation.
+
+---
+
+## Models & libraries and their licences
+
+Everything used is free and open-source (permissive licences) or a free-tier API — no paid or
+commercial licence is required to build or run this project.
+
+**Models**
+
+| Model | Role | How it runs | Licence |
+|-------|------|-------------|---------|
+| `llama-3.3-70b-versatile` | Reasoning, extraction, synthesis | Groq API (free tier); `GROQ_MODEL` env-configurable | Llama 3.3 Community License (free to use) |
+| `all-MiniLM-L6-v2` | Sentence embeddings for similarity/contradiction | **Locally**, via `sentence-transformers` (no API call) | Apache-2.0 |
+
+**Core libraries**
+
+| Library | Role | Licence |
+|---------|------|---------|
+| fastapi | API framework | MIT |
+| uvicorn | ASGI server | BSD-3-Clause |
+| streamlit | Frontend | Apache-2.0 |
+| langchain / langgraph | LLM orchestration + stateful graph | MIT |
+| langchain-groq | Groq chat-model binding | MIT |
+| langchain-community | Community integrations | MIT |
+| tavily-python | Web-search client | MIT |
+| faiss-cpu | Vector index | MIT |
+| sentence-transformers | Local embedding-model runtime | Apache-2.0 |
+| pydantic | Structured-output validation | MIT |
+| slowapi | Rate limiting | MIT |
+| python-dotenv | Env loading | BSD-3-Clause |
+| numpy | Numerics | BSD-3-Clause |
+| requests / httpx | HTTP clients | Apache-2.0 / BSD-3-Clause |
+| langsmith | Optional tracing | MIT |
+| pytest / pytest-asyncio | Tests | MIT / Apache-2.0 |
+
+All library licences are permissive (MIT / BSD / Apache-2.0). The only non-OSI artefact is the Llama
+model *weights*, which use Meta's Llama Community License — free to use, and never bundled in this
+repo (they are served by Groq, or pulled by Ollama in the local fallback).
+
+---
+
+## AI assistance disclosure
+
+As required by the challenge, this discloses where AI coding tools were used.
+
+AI coding assistants (Anthropic Claude / Claude Code) were used during development to accelerate
+boilerplate (FastAPI wiring, Streamlit layout, SQL helpers), to draft this documentation, and for
+code review and refactoring suggestions. **All architectural decisions were made and reviewed by the
+author** — the decoupled layer boundaries, the six-node LangGraph topology, the SQLite + FAISS data
+model, the authentication / rate-limiting design, and the structured-output-validation strategy.
+Every file in this repository is understood and explainable by the author; nothing is included that
+cannot be walked through and justified.
+
+---
+
 ## Design guarantees (why this isn't a "ChatGPT wrapper")
 
 - **Multi-step reasoning graph**, not one giant prompt — 6 distinct, single-responsibility nodes.
@@ -185,3 +292,38 @@ rewrite. Model throughput (Groq free-tier daily token ceiling) is handled today 
 - **Full traceability** — every finding links to a source row; the report cites `[n]` inline and the
   References section is generated in code so citations can't drift.
 - **Decoupled layers** — UI ↔ API ↔ graph ↔ data are independent and separately testable.
+
+---
+
+## Challenge compliance
+
+**Mandatory five-layer architecture** — all present (see the diagram above): UI (Streamlit) ·
+API (FastAPI) · AI intelligence (LangGraph + Groq) · data & knowledge (SQLite + FAISS) ·
+external research (Tavily).
+
+| Requirement | Where it's met |
+|-------------|----------------|
+| Working app: real frontend, backend, data, AI integration | This repo — all four layers run. |
+| Data persists across restarts | SQLite (WAL) + FAISS on disk; asserted by the live test. |
+| Multiple records processed systematically, not hard-coded | Any question is a "record"; the same six nodes run on whatever is asked. |
+| Outputs are traceable | Inline `[n]` citations → `sources.url`; deterministic References section. |
+| Not a notebook / slideshow / no-code tool | Python packages: a FastAPI service + a Streamlit app. |
+| Free / open-source / free-tier only | See licences above; free-tier contingency documented. |
+| Architecture diagram | "Architecture" section. |
+| Database / data model | "Data model" section. |
+| Model & library inventory with licences | "Models & libraries and their licences" section. |
+| Setup instructions | "Setup" + "Running the app". |
+| AI-tool usage disclosed | "AI assistance disclosure" section. |
+| Scale to 1,000 records/day | "The 1,000 records tomorrow" section. |
+
+**Records & sample data.** This is a live-research agent, so it ships no static dataset — each
+research *question* is a record, and running one populates SQLite + FAISS with real sources and
+findings. Example questions are provided in the UI and this README, and any new question works out
+of the box (the "surprise record" test): enter it, watch the six-node pipeline run, inspect the
+cited report.
+
+**Assignment 9 step mapping.** query_gen (define questions) → web_search (search sources) → grader
+(collect / keep relevant) + `sources` table (store sources) → extractor (extract + classify
+findings) → contradiction (compare evidence via FAISS, detect conflicts) → synthesizer (conclusions
+with traceable citations). The persisted SQLite + FAISS store **is** the reusable knowledge base:
+contradiction detection searches *all* prior findings, so knowledge accumulates across sessions.
