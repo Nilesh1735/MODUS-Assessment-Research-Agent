@@ -92,6 +92,158 @@ def init_db() -> None:
         """)
     logger.info("SQLite database initialised at %s", DATABASE_PATH)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Write helpers
+#
+# Each helper opens a short-lived connection via ``get_connection()`` (which commits
+# on success / rolls back on error) and uses parameterised SQL exclusively — never
+# string interpolation — so the data layer is injection-safe by construction.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _last_id(cur: sqlite3.Cursor) -> int:
+    """Return the autoincrement id from the just-executed INSERT (never ``None`` on success)."""
+    if cur.lastrowid is None:
+        raise RuntimeError("INSERT did not produce a row id")
+    return cur.lastrowid
+
+
+def create_session(question: str) -> int:
+    """Create a new research session and return its id."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO research_sessions (question, status) VALUES (?, ?)",
+            (question, "pending"),
+        )
+        return _last_id(cur)
+
+
+def insert_sub_queries(session_id: int, queries: list[str]) -> None:
+    """Persist the decomposed sub-queries for a session."""
+    with get_connection() as conn:
+        conn.executemany(
+            "INSERT INTO sub_queries (session_id, query) VALUES (?, ?)",
+            [(session_id, q) for q in queries],
+        )
+
+
+def insert_source(
+    session_id: int,
+    url: str,
+    title: str,
+    raw_content: str,
+    relevance_score: float,
+) -> int:
+    """Persist a collected web source (relevant or not) and return its id."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO sources (session_id, url, title, raw_content, relevance_score) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, url, title, raw_content, relevance_score),
+        )
+        return _last_id(cur)
+
+
+def insert_finding(
+    session_id: int,
+    source_id: int,
+    fact: str,
+    classification: str,
+    confidence: float,
+    faiss_index_id: int,
+) -> int:
+    """Persist an extracted finding (linked to its source and FAISS vector) and return its id."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO findings "
+            "(session_id, source_id, fact, classification, confidence, faiss_index_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, source_id, fact, classification, confidence, faiss_index_id),
+        )
+        return _last_id(cur)
+
+
+def insert_contradiction(
+    session_id: int,
+    finding_a_id: int,
+    finding_b_id: int,
+    explanation: str,
+    similarity: float,
+) -> None:
+    """Log a detected contradiction between two findings."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO contradictions "
+            "(session_id, finding_a_id, finding_b_id, explanation, similarity) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, finding_a_id, finding_b_id, explanation, similarity),
+        )
+
+
+def insert_report(session_id: int, content: str) -> None:
+    """
+    Persist (or replace) the final report for a session.
+
+    ``reports.session_id`` is UNIQUE, so re-running a session upserts rather than failing —
+    this keeps the pipeline idempotent.
+    """
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO reports (session_id, content) VALUES (?, ?) "
+            "ON CONFLICT(session_id) DO UPDATE SET "
+            "content = excluded.content, created_at = datetime('now')",
+            (session_id, content),
+        )
+
+
+def update_session_status(session_id: int, status: str) -> None:
+    """Update a session's lifecycle status (e.g. 'searching', 'completed', 'failed')."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE research_sessions SET status = ?, updated_at = datetime('now') WHERE id = ?",
+            (status, session_id),
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Read helpers (consumed by the contradiction and synthesizer nodes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_finding_by_faiss_id(faiss_id: int) -> Optional[sqlite3.Row]:
+    """Reverse-map a FAISS vector id back to its finding row (or ``None`` if unknown)."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT id, session_id, source_id, fact, classification, confidence, faiss_index_id "
+            "FROM findings WHERE faiss_index_id = ? LIMIT 1",
+            (faiss_id,),
+        )
+        return cur.fetchone()
+
+
+def get_findings(session_id: int) -> list[sqlite3.Row]:
+    """Return a session's findings joined to their source (url/title) for citation building."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT f.id, f.fact, f.classification, f.confidence, f.faiss_index_id, "
+            "       f.source_id, s.url AS url, s.title AS title "
+            "FROM findings f LEFT JOIN sources s ON f.source_id = s.id "
+            "WHERE f.session_id = ? ORDER BY f.id",
+            (session_id,),
+        )
+        return cur.fetchall()
+
+
+def get_contradictions(session_id: int) -> list[sqlite3.Row]:
+    """Return contradictions logged for a session."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT id, finding_a_id, finding_b_id, explanation, similarity "
+            "FROM contradictions WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        )
+        return cur.fetchall()
+
+
 class FAISSStore:
     _index: faiss.IndexFlatL2
     _index_path: str
