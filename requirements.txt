@@ -4,7 +4,7 @@ python-dotenv
 pydantic
 langchain
 langgraph
-langchain-groq
+langchain-openai
 langchain-community
 tavily-python
 faiss-cpu

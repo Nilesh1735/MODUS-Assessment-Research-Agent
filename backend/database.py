@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./research.db")
 FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "./faiss_index")
-EMBEDDING_DIM = 384  # sentence-transformers all-MiniLM-L6-v2
+EMBEDDING_DIM = 384  # BAAI/bge-small-en-v1.5 (FastEmbed)
 
 @contextmanager
 def get_connection():

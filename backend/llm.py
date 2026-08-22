@@ -1,7 +1,7 @@
 """
 llm.py
 ------
-Groq LLM factory and the Pydantic schemas that constrain every LLM output in the pipeline.
+OpenRouter LLM factory and the Pydantic schemas that constrain every LLM output in the pipeline.
 
 Why this shape:
   * The LLM is **lazily** constructed (``get_llm``) and cached, so importing the graph never
@@ -16,7 +16,7 @@ import os
 from functools import lru_cache
 from typing import Literal
 
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, field_validator
 
 from backend import config
@@ -169,27 +169,29 @@ class SynthesizedReport(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=8)
-def get_llm(max_tokens: int) -> ChatGroq:
+def get_llm(max_tokens: int) -> ChatOpenAI:
     """
-    Build (once per ``max_tokens`` budget) and return a shared ChatGroq client.
+    Build (once per ``max_tokens`` budget) and return a shared ChatOpenAI client pointed at
+    OpenRouter, an OpenAI-compatible gateway that sidesteps Groq's free-tier rate limits.
 
-    ``max_tokens`` is part of the cache key because Groq counts reserved output tokens against the
-    per-minute limit, so nodes request only the budget they need (see ``structured_llm``). A small
-    set of budgets means only a handful of cached clients. Raises a clear error if ``GROQ_API_KEY``
-    is missing, rather than failing deep inside a node.
+    ``max_tokens`` is part of the cache key so nodes request only the budget they need (see
+    ``structured_llm``); a small set of budgets means only a handful of cached clients. Raises a
+    clear error if ``OPENROUTER_API_KEY`` is missing, rather than failing deep inside a node.
     """
-    if not os.getenv("GROQ_API_KEY"):
+    if not os.getenv("OPENROUTER_API_KEY"):
         raise RuntimeError(
-            "GROQ_API_KEY is not set. Add it to your .env before running the research pipeline."
+            "OPENROUTER_API_KEY is not set. Add it to your .env before running the research pipeline."
         )
     logger.info(
-        "Initialising ChatGroq (model=%s, temperature=%s, max_tokens=%s)",
+        "Initialising ChatOpenAI via OpenRouter (model=%s, temperature=%s, max_tokens=%s)",
         config.GROQ_MODEL,
         config.LLM_TEMPERATURE,
         max_tokens,
     )
-    return ChatGroq(
+    return ChatOpenAI(
         model=config.GROQ_MODEL,
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY"),
         temperature=config.LLM_TEMPERATURE,
         max_tokens=max_tokens,
         timeout=config.LLM_TIMEOUT_SECONDS,

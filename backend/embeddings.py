@@ -12,8 +12,8 @@ def get_embedder():
     Returns a shared FastEmbedEmbeddings instance.
     Uses ONNX runtime instead of PyTorch to fit within Render's 512MB free tier RAM limit.
     """
-    logger.info("Loading FastEmbed embedding model (BAAI/bge-small-en-v1.5)...")
-    return FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+    logger.info("Loading FastEmbed embedding model (%s)...", config.EMBEDDING_MODEL)
+    return FastEmbedEmbeddings(model_name=config.EMBEDDING_MODEL)
 
 def embed(text: str) -> np.ndarray:
     """

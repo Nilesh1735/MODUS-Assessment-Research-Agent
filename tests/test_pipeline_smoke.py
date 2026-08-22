@@ -22,7 +22,7 @@ from backend.database import (
     init_db,
 )
 
-LIVE_KEYS_PRESENT = bool(os.getenv("GROQ_API_KEY")) and bool(os.getenv("TAVILY_API_KEY"))
+LIVE_KEYS_PRESENT = bool(os.getenv("OPENROUTER_API_KEY")) and bool(os.getenv("TAVILY_API_KEY"))
 LIVE_QUESTION = "How is AI transforming retail?"
 
 
@@ -123,9 +123,9 @@ def test_research_result_shape():
     assert result.report == "# report"
 
 
-# ── Live end-to-end test (requires GROQ_API_KEY + TAVILY_API_KEY) ────────────
+# ── Live end-to-end test (requires OPENROUTER_API_KEY + TAVILY_API_KEY) ──────
 
-@pytest.mark.skipif(not LIVE_KEYS_PRESENT, reason="GROQ_API_KEY and TAVILY_API_KEY required")
+@pytest.mark.skipif(not LIVE_KEYS_PRESENT, reason="OPENROUTER_API_KEY and TAVILY_API_KEY required")
 def test_run_research_end_to_end():
     """Run the real pipeline via run_research and assert a traceable, persisted result."""
     from backend.graph import run_research

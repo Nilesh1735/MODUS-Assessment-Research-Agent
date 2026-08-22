@@ -40,7 +40,7 @@ Five real layers, each independently deployable, scalable, and replaceable:
 |-------|-----------|----------------|
 | **Frontend** | Streamlit | Thin HTTP client — sends the question, renders the report. No pipeline/DB imports. |
 | **Backend** | FastAPI + slowapi | Authenticated (`X-API-Key`, constant-time), rate-limited REST API. |
-| **Intelligence** | LangGraph + Groq (OpenAI gpt-oss-120b) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
+| **Intelligence** | LangGraph + OpenRouter (Gemini 2.0 Flash) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
 | **Data** | SQLite (WAL) + FAISS | Durable relational store + vector index for semantic contradiction detection. |
 | **External** | Tavily | Live web search. |
 
@@ -80,10 +80,10 @@ Then edit `.env`:
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `GROQ_API_KEY` | ✅ | LLM inference (gpt-oss-120b on Groq). |
+| `OPENROUTER_API_KEY` | ✅ | LLM inference (Gemini 2.0 Flash via OpenRouter). |
 | `TAVILY_API_KEY` | ✅ | Live web search. |
 | `INTERNAL_API_KEY` | ✅ | Shared secret between the UI and API. Generate one with:<br>`python -c "import secrets; print(secrets.token_hex(32))"` |
-| `GROQ_MODEL` | optional | Groq model to use. Default `openai/gpt-oss-120b`; change to swap tiers/providers. |
+| `GROQ_MODEL` | optional | OpenRouter model id to use. Default `google/gemini-2.0-flash-exp:free`; change to swap models/tiers. |
 | `LANGCHAIN_API_KEY` / `LANGCHAIN_TRACING_V2` / `LANGCHAIN_PROJECT` | optional | LangSmith tracing. |
 | `API_BASE_URL` | optional | Where the UI reaches the API. Default `http://127.0.0.1:8000`. |
 | `API_TIMEOUT_SECONDS` | optional | UI request timeout. Default `300`. |
@@ -125,7 +125,7 @@ The interactive API docs are at http://127.0.0.1:8000/docs.
 # Fast, keyless structural tests (no API quota spent)
 pytest tests/test_pipeline_smoke.py -k "not end_to_end"
 
-# Full live end-to-end test (requires GROQ_API_KEY + TAVILY_API_KEY; spends quota)
+# Full live end-to-end test (requires OPENROUTER_API_KEY + TAVILY_API_KEY; spends quota)
 pytest tests/test_pipeline_smoke.py
 ```
 
@@ -196,7 +196,7 @@ address them in this order:
 
 Because the graph, API, and data layers are already fully decoupled (the graph imports nothing from
 FastAPI or Streamlit), none of the above touches the node logic — it's an infrastructure swap, not a
-rewrite. Model throughput (Groq free-tier daily token ceiling) is handled today via per-node
+rewrite. Model throughput (OpenRouter free-tier rate limits) is handled today via per-node
 `max_tokens` budgets and is env-configurable for switching model tiers.
 
 ---
@@ -208,12 +208,13 @@ Only **two** operations leave the machine — LLM inference and web search. Ever
 dependency. Both external services are on free tiers today, and both are deliberately isolated so
 they can be swapped — or replaced with a fully local alternative — without touching the graph.
 
-**Groq (LLM inference) — free tier, per-minute + daily token limits.**
+**OpenRouter (LLM inference) — free tier, per-minute rate limits.**
 The model is reached only through `get_llm()` in [backend/llm.py](backend/llm.py); the six nodes are
-model-agnostic (they only call `structured_llm(schema)`). If Groq becomes paid or unavailable:
-- switch tiers or providers by changing one env var / factory — `GROQ_MODEL` is already
-  env-configurable, and `ChatGroq` can be replaced with any OpenAI-compatible client (OpenAI,
-  Together, Fireworks) without editing a single node; **or**
+model-agnostic (they only call `structured_llm(schema)`). OpenRouter is OpenAI-compatible, so the
+client is a stock `ChatOpenAI` pointed at OpenRouter's base URL. If it becomes paid or unavailable:
+- switch models with the `GROQ_MODEL` env var, or switch providers by pointing `base_url` /
+  `api_key` in [backend/llm.py](backend/llm.py) at any OpenAI-compatible endpoint (OpenAI,
+  Together, Fireworks, Groq) — without editing a single node; **or**
 - run **fully local — no key, no cost** — with Ollama or vLLM serving Llama 3.x / Qwen. The
   structured-output contract is identical.
 
@@ -238,8 +239,8 @@ commercial licence is required to build or run this project.
 
 | Model | Role | How it runs | Licence |
 |-------|------|-------------|---------|
-| `openai/gpt-oss-120b` | Reasoning, extraction, synthesis | Groq API (free tier); `GROQ_MODEL` env-configurable | Apache-2.0 |
-| `all-MiniLM-L6-v2` | Sentence embeddings for similarity/contradiction | **Locally**, via `sentence-transformers` (no API call) | Apache-2.0 |
+| `google/gemini-2.0-flash-exp:free` | Reasoning, extraction, synthesis | OpenRouter API (free tier) | Proprietary (free via OpenRouter) |
+| `BAAI/bge-small-en-v1.5` | Sentence embeddings for similarity/contradiction | **Locally**, via `fastembed` (ONNX runtime, no API call) | MIT |
 
 **Core libraries**
 
@@ -249,11 +250,11 @@ commercial licence is required to build or run this project.
 | uvicorn | ASGI server | BSD-3-Clause |
 | streamlit | Frontend | Apache-2.0 |
 | langchain / langgraph | LLM orchestration + stateful graph | MIT |
-| langchain-groq | Groq chat-model binding | MIT |
+| langchain-openai | OpenAI-compatible chat-model binding (used for OpenRouter) | MIT |
 | langchain-community | Community integrations | MIT |
 | tavily-python | Web-search client | MIT |
 | faiss-cpu | Vector index | MIT |
-| sentence-transformers | Local embedding-model runtime | Apache-2.0 |
+| fastembed | Local ONNX embedding runtime | Apache-2.0 |
 | pydantic | Structured-output validation | MIT |
 | slowapi | Rate limiting | MIT |
 | python-dotenv | Env loading | BSD-3-Clause |
@@ -262,9 +263,10 @@ commercial licence is required to build or run this project.
 | langsmith | Optional tracing | MIT |
 | pytest / pytest-asyncio | Tests | MIT / Apache-2.0 |
 
-All licences here are permissive (MIT / BSD / Apache-2.0) — including the `gpt-oss` model weights,
-which OpenAI released under Apache-2.0. Model weights are never bundled in this repo; they are served
-by Groq (or pulled by Ollama in the local fallback).
+All bundled libraries and the local embedding model use permissive licences (MIT / BSD / Apache-2.0).
+The LLM (Gemini 2.0 Flash) is a proprietary model consumed via OpenRouter's **free tier** — no weights
+are bundled in this repo, and the factory can be repointed at an open model (Llama 3.x / Qwen via
+Ollama) with no changes outside [backend/llm.py](backend/llm.py).
 
 ---
 
@@ -298,7 +300,7 @@ cannot be walked through and justified.
 ## Challenge compliance
 
 **Mandatory five-layer architecture** — all present (see the diagram above): UI (Streamlit) ·
-API (FastAPI) · AI intelligence (LangGraph + Groq) · data & knowledge (SQLite + FAISS) ·
+API (FastAPI) · AI intelligence (LangGraph + OpenRouter) · data & knowledge (SQLite + FAISS) ·
 external research (Tavily).
 
 | Requirement | Where it's met |

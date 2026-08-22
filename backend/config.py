@@ -33,7 +33,7 @@ def _get_int(name: str, default: int) -> int:
 
 
 # ── LLM (Groq) ───────────────────────────────────────────────────────────────
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "google/gemini-2.0-flash-exp:free")
 # Deterministic outputs are important for a research/audit pipeline.
 LLM_TEMPERATURE: float = _get_float("LLM_TEMPERATURE", 0.0)
 # Max tokens the LLM may emit per structured call (report can be long).
@@ -67,7 +67,8 @@ TAVILY_SEARCH_DEPTH: str = os.getenv("TAVILY_SEARCH_DEPTH", "advanced")
 MAX_CONTENT_CHARS: int = _get_int("MAX_CONTENT_CHARS", 4000)
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
-EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# FastEmbed (ONNX) model id; EMBEDDING_DIM must match the model's output dimension.
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 EMBEDDING_DIM: int = _get_int("EMBEDDING_DIM", 384)
 
 # ── Contradiction detection ──────────────────────────────────────────────────
