@@ -8,7 +8,7 @@ langchain-groq
 langchain-community
 tavily-python
 faiss-cpu
-sentence-transformers
+fastembed>=0.3.0
 langsmith
 slowapi
 streamlit
