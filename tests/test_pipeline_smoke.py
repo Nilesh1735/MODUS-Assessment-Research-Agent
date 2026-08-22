@@ -6,7 +6,7 @@ Smoke tests for the research pipeline.
 Two tiers:
   * Structural tests run everywhere with no API keys — they prove every module imports, the
     graph compiles, and the Pydantic schemas enforce their contracts.
-  * The live end-to-end test runs the real pipeline against Groq + Tavily and is skipped unless
+  * The live end-to-end test runs the real pipeline against the Gemini API + Tavily and is skipped unless
     both API keys are present. It also serves as the persistence check: run it twice and the
     FAISS vector count and prior sessions should carry over (data persists across restarts).
 """
@@ -22,7 +22,7 @@ from backend.database import (
     init_db,
 )
 
-LIVE_KEYS_PRESENT = bool(os.getenv("OPENROUTER_API_KEY")) and bool(os.getenv("TAVILY_API_KEY"))
+LIVE_KEYS_PRESENT = bool(os.getenv("GEMINI_API_KEY")) and bool(os.getenv("TAVILY_API_KEY"))
 LIVE_QUESTION = "How is AI transforming retail?"
 
 
@@ -61,7 +61,7 @@ def test_finding_confidence_is_bounded():
 def test_contradiction_verdict_coercion():
     """ContradictionVerdict uses a yes/no enum (not a bool) and exposes is_contradiction.
 
-    Regression guard: a raw ``bool`` field caused Groq to reject the tool call server-side
+    Regression guard: a raw ``bool`` field caused some providers to reject the tool call server-side
     (``expected boolean, but got string``). The enum removes that failure mode; the ``mode=before``
     normaliser is defense-in-depth for any non-tool-calling path.
     """
@@ -123,9 +123,9 @@ def test_research_result_shape():
     assert result.report == "# report"
 
 
-# ── Live end-to-end test (requires OPENROUTER_API_KEY + TAVILY_API_KEY) ──────
+# ── Live end-to-end test (requires GEMINI_API_KEY + TAVILY_API_KEY) ──────
 
-@pytest.mark.skipif(not LIVE_KEYS_PRESENT, reason="OPENROUTER_API_KEY and TAVILY_API_KEY required")
+@pytest.mark.skipif(not LIVE_KEYS_PRESENT, reason="GEMINI_API_KEY and TAVILY_API_KEY required")
 def test_run_research_end_to_end():
     """Run the real pipeline via run_research and assert a traceable, persisted result."""
     from backend.graph import run_research

@@ -1,7 +1,7 @@
 """
 llm.py
 ------
-OpenRouter LLM factory and the Pydantic schemas that constrain every LLM output in the pipeline.
+Google Gemini LLM factory and the Pydantic schemas that constrain every LLM output in the pipeline.
 
 Why this shape:
   * The LLM is **lazily** constructed (``get_llm``) and cached, so importing the graph never
@@ -16,7 +16,7 @@ import os
 from functools import lru_cache
 from typing import Literal
 
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field, field_validator
 
 from backend import config
@@ -113,9 +113,9 @@ class ContradictionVerdict(BaseModel):
     """
     LLM verdict on whether two semantically-similar findings actually conflict.
 
-    The verdict is a closed ``Literal["yes", "no"]`` string, not a raw ``bool``. Groq validates
-    tool-call arguments against the generated JSON schema *server-side* and rejects mismatches with
-    a 400 before the response reaches us — and tool-calling models frequently emit ``"false"`` (a
+    The verdict is a closed ``Literal["yes", "no"]`` string, not a raw ``bool``. Some tool-calling
+    providers validate call arguments against the generated JSON schema *server-side* and reject
+    mismatches with a 400 before the response reaches us — and models frequently emit ``"false"`` (a
     string) for a boolean field, which triggers exactly that rejection. A closed enum sidesteps the
     problem (mirroring the proven :class:`GradedDocument` pattern); ``is_contradiction`` remains
     available as a computed property so call sites are unaffected.
@@ -134,7 +134,7 @@ class ContradictionVerdict(BaseModel):
     @classmethod
     def _normalise_verdict(cls, value: object) -> object:
         # Defense-in-depth for any non-tool-calling path (e.g. JSON mode): coerce booleans and
-        # common variants onto the enum. On the tool-calling path Groq validates the enum itself.
+        # common variants onto the enum. On the tool-calling path the provider validates the enum itself.
         if isinstance(value, bool):
             return "yes" if value else "no"
         if isinstance(value, str):
@@ -169,31 +169,31 @@ class SynthesizedReport(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=8)
-def get_llm(max_tokens: int) -> ChatOpenAI:
+def get_llm(max_tokens: int) -> ChatGoogleGenerativeAI:
     """
-    Build (once per ``max_tokens`` budget) and return a shared ChatOpenAI client pointed at
-    OpenRouter, an OpenAI-compatible gateway that sidesteps Groq's free-tier rate limits.
+    Build (once per ``max_tokens`` budget) and return a shared ChatGoogleGenerativeAI client for
+    the native Google Gemini API, whose free tier is generous enough to avoid the per-minute rate
+    limits we hit on earlier providers.
 
     ``max_tokens`` is part of the cache key so nodes request only the budget they need (see
     ``structured_llm``); a small set of budgets means only a handful of cached clients. Raises a
-    clear error if ``OPENROUTER_API_KEY`` is missing, rather than failing deep inside a node.
+    clear error if ``GEMINI_API_KEY`` is missing, rather than failing deep inside a node.
     """
-    if not os.getenv("OPENROUTER_API_KEY"):
+    if not os.getenv("GEMINI_API_KEY"):
         raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Add it to your .env before running the research pipeline."
+            "GEMINI_API_KEY is not set. Add it to your .env before running the research pipeline."
         )
     logger.info(
-        "Initialising ChatOpenAI via OpenRouter (model=%s, temperature=%s, max_tokens=%s)",
+        "Initialising ChatGoogleGenerativeAI (Gemini) (model=%s, temperature=%s, max_output_tokens=%s)",
         config.GROQ_MODEL,
         config.LLM_TEMPERATURE,
         max_tokens,
     )
-    return ChatOpenAI(
+    return ChatGoogleGenerativeAI(
         model=config.GROQ_MODEL,
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
+        api_key=os.getenv("GEMINI_API_KEY"),
         temperature=config.LLM_TEMPERATURE,
-        max_tokens=max_tokens,
+        max_output_tokens=max_tokens,
         timeout=config.LLM_TIMEOUT_SECONDS,
         max_retries=config.LLM_MAX_RETRIES,
     )
@@ -204,7 +204,7 @@ def structured_llm(schema: type[BaseModel], max_tokens: int | None = None):
     Return a runnable that invokes the LLM and yields a validated instance of ``schema``.
 
     ``max_tokens`` bounds this call's reserved output (defaults to ``config.LLM_MAX_TOKENS``); pass
-    a per-node budget to keep small calls from tripping Groq's per-minute token limit.
+    a per-node budget to size each call's reserved output to what the node actually needs.
 
     Usage:  ``result: SubQueries = structured_llm(SubQueries, max_tokens=512).invoke(messages)``
     """

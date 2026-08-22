@@ -92,7 +92,7 @@ async def health() -> dict:
     """
     return {
         "status": "ok",
-        "openrouter_configured": bool(os.getenv("OPENROUTER_API_KEY")),
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
         "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
         "auth_configured": bool(os.getenv("INTERNAL_API_KEY")),
     }

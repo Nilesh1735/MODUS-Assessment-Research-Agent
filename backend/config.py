@@ -32,24 +32,23 @@ def _get_int(name: str, default: int) -> int:
         return default
 
 
-# ── LLM (Groq) ───────────────────────────────────────────────────────────────
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "google/gemini-flash-1.5:free")
+# ── LLM (Gemini) ─────────────────────────────────────────────────────────────
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "gemini-1.5-flash")
 # Deterministic outputs are important for a research/audit pipeline.
 LLM_TEMPERATURE: float = _get_float("LLM_TEMPERATURE", 0.0)
 # Max tokens the LLM may emit per structured call (report can be long).
 LLM_MAX_TOKENS: int = _get_int("LLM_MAX_TOKENS", 4096)
 # Cap request timeout so a hung provider call cannot stall the whole graph.
 LLM_TIMEOUT_SECONDS: float = _get_float("LLM_TIMEOUT_SECONDS", 60.0)
-# Automatic retries for transient failures (rate-limit 429s, timeouts). The underlying Groq SDK
-# uses exponential backoff and honours the server's Retry-After header, so this smooths over
-# per-minute (TPM/RPM) throttling. It does NOT rescue a fully-exhausted daily quota.
+# Automatic retries for transient failures (rate-limit 429s, timeouts): the client retries with
+# exponential backoff between attempts, smoothing over brief per-minute rate throttling. It does
+# NOT rescue a fully-exhausted daily quota.
 LLM_MAX_RETRIES: int = _get_int("LLM_MAX_RETRIES", 3)
 
 # ── Per-node output token budgets ────────────────────────────────────────────
-# Groq counts (input + reserved max_tokens) against the per-minute (TPM) limit, so an oversized
-# output reservation on a tiny call can trip the limit by itself (e.g. the 8B model's 6k TPM).
-# Size each node's output budget to what it actually needs — only synthesis is large. The default
-# LLM_MAX_TOKENS above is the fallback for any call that doesn't specify one.
+# Cap each node's reserved output at what it actually needs: smaller reservations keep latency and
+# token cost down, and only synthesis needs a large budget. The default LLM_MAX_TOKENS above is the
+# fallback for any call that doesn't specify one.
 QUERY_GEN_MAX_TOKENS: int = _get_int("QUERY_GEN_MAX_TOKENS", 512)
 GRADER_MAX_TOKENS: int = _get_int("GRADER_MAX_TOKENS", 256)
 EXTRACTOR_MAX_TOKENS: int = _get_int("EXTRACTOR_MAX_TOKENS", 1536)

@@ -40,7 +40,7 @@ Five real layers, each independently deployable, scalable, and replaceable:
 |-------|-----------|----------------|
 | **Frontend** | Streamlit | Thin HTTP client — sends the question, renders the report. No pipeline/DB imports. |
 | **Backend** | FastAPI + slowapi | Authenticated (`X-API-Key`, constant-time), rate-limited REST API. |
-| **Intelligence** | LangGraph + OpenRouter (Gemini 2.0 Flash) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
+| **Intelligence** | LangGraph + Google Gemini API (Gemini 1.5 Flash) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
 | **Data** | SQLite (WAL) + FAISS | Durable relational store + vector index for semantic contradiction detection. |
 | **External** | Tavily | Live web search. |
 
@@ -80,10 +80,10 @@ Then edit `.env`:
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `OPENROUTER_API_KEY` | ✅ | LLM inference (Gemini 2.0 Flash via OpenRouter). |
+| `GEMINI_API_KEY` | ✅ | LLM inference (Google Gemini API). |
 | `TAVILY_API_KEY` | ✅ | Live web search. |
 | `INTERNAL_API_KEY` | ✅ | Shared secret between the UI and API. Generate one with:<br>`python -c "import secrets; print(secrets.token_hex(32))"` |
-| `GROQ_MODEL` | optional | OpenRouter model id to use. Default `google/gemini-2.0-flash-exp:free`; change to swap models/tiers. |
+| `GROQ_MODEL` | optional | Gemini model id to use. Default `gemini-1.5-flash`; change to swap models. |
 | `LANGCHAIN_API_KEY` / `LANGCHAIN_TRACING_V2` / `LANGCHAIN_PROJECT` | optional | LangSmith tracing. |
 | `API_BASE_URL` | optional | Where the UI reaches the API. Default `http://127.0.0.1:8000`. |
 | `API_TIMEOUT_SECONDS` | optional | UI request timeout. Default `300`. |
@@ -125,7 +125,7 @@ The interactive API docs are at http://127.0.0.1:8000/docs.
 # Fast, keyless structural tests (no API quota spent)
 pytest tests/test_pipeline_smoke.py -k "not end_to_end"
 
-# Full live end-to-end test (requires OPENROUTER_API_KEY + TAVILY_API_KEY; spends quota)
+# Full live end-to-end test (requires GEMINI_API_KEY + TAVILY_API_KEY; spends quota)
 pytest tests/test_pipeline_smoke.py
 ```
 
@@ -196,7 +196,7 @@ address them in this order:
 
 Because the graph, API, and data layers are already fully decoupled (the graph imports nothing from
 FastAPI or Streamlit), none of the above touches the node logic — it's an infrastructure swap, not a
-rewrite. Model throughput (OpenRouter free-tier rate limits) is handled today via per-node
+rewrite. Model throughput (Gemini free-tier rate limits) is handled today via per-node
 `max_tokens` budgets and is env-configurable for switching model tiers.
 
 ---
@@ -208,13 +208,13 @@ Only **two** operations leave the machine — LLM inference and web search. Ever
 dependency. Both external services are on free tiers today, and both are deliberately isolated so
 they can be swapped — or replaced with a fully local alternative — without touching the graph.
 
-**OpenRouter (LLM inference) — free tier, per-minute rate limits.**
+**Google Gemini API (LLM inference) — free tier, generous per-minute limits.**
 The model is reached only through `get_llm()` in [backend/llm.py](backend/llm.py); the six nodes are
-model-agnostic (they only call `structured_llm(schema)`). OpenRouter is OpenAI-compatible, so the
-client is a stock `ChatOpenAI` pointed at OpenRouter's base URL. If it becomes paid or unavailable:
-- switch models with the `GROQ_MODEL` env var, or switch providers by pointing `base_url` /
-  `api_key` in [backend/llm.py](backend/llm.py) at any OpenAI-compatible endpoint (OpenAI,
-  Together, Fireworks, Groq) — without editing a single node; **or**
+model-agnostic (they only call `structured_llm(schema)`). The client is a stock
+`ChatGoogleGenerativeAI` from the `langchain-google-genai` package. If it becomes paid or unavailable:
+- switch models with the `GROQ_MODEL` env var, or switch providers by swapping the chat-model class
+  in [backend/llm.py](backend/llm.py) for any LangChain chat integration (OpenAI, Anthropic,
+  Together, Groq) — without editing a single node; **or**
 - run **fully local — no key, no cost** — with Ollama or vLLM serving Llama 3.x / Qwen. The
   structured-output contract is identical.
 
@@ -239,7 +239,7 @@ commercial licence is required to build or run this project.
 
 | Model | Role | How it runs | Licence |
 |-------|------|-------------|---------|
-| `google/gemini-2.0-flash-exp:free` | Reasoning, extraction, synthesis | OpenRouter API (free tier) | Proprietary (free via OpenRouter) |
+| `gemini-1.5-flash` | Reasoning, extraction, synthesis | Google Gemini API (free tier) | Proprietary (free tier) |
 | `BAAI/bge-small-en-v1.5` | Sentence embeddings for similarity/contradiction | **Locally**, via `fastembed` (ONNX runtime, no API call) | MIT |
 
 **Core libraries**
@@ -250,7 +250,7 @@ commercial licence is required to build or run this project.
 | uvicorn | ASGI server | BSD-3-Clause |
 | streamlit | Frontend | Apache-2.0 |
 | langchain / langgraph | LLM orchestration + stateful graph | MIT |
-| langchain-openai | OpenAI-compatible chat-model binding (used for OpenRouter) | MIT |
+| langchain-google-genai | Google Gemini chat-model binding | MIT |
 | langchain-community | Community integrations | MIT |
 | tavily-python | Web-search client | MIT |
 | faiss-cpu | Vector index | MIT |
@@ -264,8 +264,8 @@ commercial licence is required to build or run this project.
 | pytest / pytest-asyncio | Tests | MIT / Apache-2.0 |
 
 All bundled libraries and the local embedding model use permissive licences (MIT / BSD / Apache-2.0).
-The LLM (Gemini 2.0 Flash) is a proprietary model consumed via OpenRouter's **free tier** — no weights
-are bundled in this repo, and the factory can be repointed at an open model (Llama 3.x / Qwen via
+The LLM (Gemini 1.5 Flash) is a proprietary model consumed via the Google Gemini API's **free tier** — no
+weights are bundled in this repo, and the factory can be repointed at an open model (Llama 3.x / Qwen via
 Ollama) with no changes outside [backend/llm.py](backend/llm.py).
 
 ---
@@ -300,7 +300,7 @@ cannot be walked through and justified.
 ## Challenge compliance
 
 **Mandatory five-layer architecture** — all present (see the diagram above): UI (Streamlit) ·
-API (FastAPI) · AI intelligence (LangGraph + OpenRouter) · data & knowledge (SQLite + FAISS) ·
+API (FastAPI) · AI intelligence (LangGraph + Google Gemini) · data & knowledge (SQLite + FAISS) ·
 external research (Tavily).
 
 | Requirement | Where it's met |
