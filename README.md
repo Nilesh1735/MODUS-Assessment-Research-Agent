@@ -40,7 +40,7 @@ Five real layers, each independently deployable, scalable, and replaceable:
 |-------|-----------|----------------|
 | **Frontend** | Streamlit | Thin HTTP client — sends the question, renders the report. No pipeline/DB imports. |
 | **Backend** | FastAPI + slowapi | Authenticated (`X-API-Key`, constant-time), rate-limited REST API. |
-| **Intelligence** | LangGraph + Groq (Llama 3.3 70B) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
+| **Intelligence** | LangGraph + Groq (OpenAI gpt-oss-120b) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
 | **Data** | SQLite (WAL) + FAISS | Durable relational store + vector index for semantic contradiction detection. |
 | **External** | Tavily | Live web search. |
 
@@ -80,10 +80,10 @@ Then edit `.env`:
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `GROQ_API_KEY` | ✅ | LLM inference (Llama 3.3 70B on Groq). |
+| `GROQ_API_KEY` | ✅ | LLM inference (gpt-oss-120b on Groq). |
 | `TAVILY_API_KEY` | ✅ | Live web search. |
 | `INTERNAL_API_KEY` | ✅ | Shared secret between the UI and API. Generate one with:<br>`python -c "import secrets; print(secrets.token_hex(32))"` |
-| `GROQ_MODEL` | optional | Groq model to use. Default `llama-3.3-70b-versatile`; change to swap tiers/providers. |
+| `GROQ_MODEL` | optional | Groq model to use. Default `openai/gpt-oss-120b`; change to swap tiers/providers. |
 | `LANGCHAIN_API_KEY` / `LANGCHAIN_TRACING_V2` / `LANGCHAIN_PROJECT` | optional | LangSmith tracing. |
 | `API_BASE_URL` | optional | Where the UI reaches the API. Default `http://127.0.0.1:8000`. |
 | `API_TIMEOUT_SECONDS` | optional | UI request timeout. Default `300`. |
@@ -238,7 +238,7 @@ commercial licence is required to build or run this project.
 
 | Model | Role | How it runs | Licence |
 |-------|------|-------------|---------|
-| `llama-3.3-70b-versatile` | Reasoning, extraction, synthesis | Groq API (free tier); `GROQ_MODEL` env-configurable | Llama 3.3 Community License (free to use) |
+| `openai/gpt-oss-120b` | Reasoning, extraction, synthesis | Groq API (free tier); `GROQ_MODEL` env-configurable | Apache-2.0 |
 | `all-MiniLM-L6-v2` | Sentence embeddings for similarity/contradiction | **Locally**, via `sentence-transformers` (no API call) | Apache-2.0 |
 
 **Core libraries**
@@ -262,9 +262,9 @@ commercial licence is required to build or run this project.
 | langsmith | Optional tracing | MIT |
 | pytest / pytest-asyncio | Tests | MIT / Apache-2.0 |
 
-All library licences are permissive (MIT / BSD / Apache-2.0). The only non-OSI artefact is the Llama
-model *weights*, which use Meta's Llama Community License — free to use, and never bundled in this
-repo (they are served by Groq, or pulled by Ollama in the local fallback).
+All licences here are permissive (MIT / BSD / Apache-2.0) — including the `gpt-oss` model weights,
+which OpenAI released under Apache-2.0. Model weights are never bundled in this repo; they are served
+by Groq (or pulled by Ollama in the local fallback).
 
 ---
 
