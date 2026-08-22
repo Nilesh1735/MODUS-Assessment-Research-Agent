@@ -40,7 +40,7 @@ Five real layers, each independently deployable, scalable, and replaceable:
 |-------|-----------|----------------|
 | **Frontend** | Streamlit | Thin HTTP client — sends the question, renders the report. No pipeline/DB imports. |
 | **Backend** | FastAPI + slowapi | Authenticated (`X-API-Key`, constant-time), rate-limited REST API. |
-| **Intelligence** | LangGraph + Google Gemini API (Gemini 2.5 Flash-Lite) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
+| **Intelligence** | LangGraph + Google Gemini API (Gemini 3.5 Flash-Lite) | 6-node graph; every node's output validated by Pydantic `with_structured_output`. |
 | **Data** | SQLite (WAL) + FAISS | Durable relational store + vector index for semantic contradiction detection. |
 | **External** | Tavily | Live web search. |
 
@@ -83,7 +83,7 @@ Then edit `.env`:
 | `GEMINI_API_KEY` | ✅ | LLM inference (Google Gemini API). |
 | `TAVILY_API_KEY` | ✅ | Live web search. |
 | `INTERNAL_API_KEY` | ✅ | Shared secret between the UI and API. Generate one with:<br>`python -c "import secrets; print(secrets.token_hex(32))"` |
-| `GROQ_MODEL` | optional | Gemini model id to use. Default `gemini-2.5-flash-lite`; change to swap models. |
+| `GROQ_MODEL` | optional | Gemini model id to use. Default `gemini-3.5-flash-lite`; change to swap models. |
 | `LANGCHAIN_API_KEY` / `LANGCHAIN_TRACING_V2` / `LANGCHAIN_PROJECT` | optional | LangSmith tracing. |
 | `API_BASE_URL` | optional | Where the UI reaches the API. Default `http://127.0.0.1:8000`. |
 | `API_TIMEOUT_SECONDS` | optional | UI request timeout. Default `300`. |
@@ -239,7 +239,7 @@ commercial licence is required to build or run this project.
 
 | Model | Role | How it runs | Licence |
 |-------|------|-------------|---------|
-| `gemini-2.5-flash-lite` | Reasoning, extraction, synthesis | Google Gemini API (free tier) | Proprietary (free tier) |
+| `gemini-3.5-flash-lite` | Reasoning, extraction, synthesis | Google Gemini API (free tier) | Proprietary (free tier) |
 | `BAAI/bge-small-en-v1.5` | Sentence embeddings for similarity/contradiction | **Locally**, via `fastembed` (ONNX runtime, no API call) | MIT |
 
 **Core libraries**
@@ -264,7 +264,7 @@ commercial licence is required to build or run this project.
 | pytest / pytest-asyncio | Tests | MIT / Apache-2.0 |
 
 All bundled libraries and the local embedding model use permissive licences (MIT / BSD / Apache-2.0).
-The LLM (Gemini 2.5 Flash-Lite) is a proprietary model consumed via the Google Gemini API's **free tier** — no
+The LLM (Gemini 3.5 Flash-Lite) is a proprietary model consumed via the Google Gemini API's **free tier** — no
 weights are bundled in this repo, and the factory can be repointed at an open model (Llama 3.x / Qwen via
 Ollama) with no changes outside [backend/llm.py](backend/llm.py).
 
