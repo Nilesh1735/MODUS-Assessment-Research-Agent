@@ -33,7 +33,7 @@ def _get_int(name: str, default: int) -> int:
 
 
 # ── LLM (Groq) ───────────────────────────────────────────────────────────────
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "google/gemini-2.0-flash-exp:free")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "google/gemini-flash-1.5:free")
 # Deterministic outputs are important for a research/audit pipeline.
 LLM_TEMPERATURE: float = _get_float("LLM_TEMPERATURE", 0.0)
 # Max tokens the LLM may emit per structured call (report can be long).
