@@ -57,10 +57,12 @@ SYNTHESIZER_MAX_TOKENS: int = _get_int("SYNTHESIZER_MAX_TOKENS", 4096)
 
 # ── Query generation ─────────────────────────────────────────────────────────
 MIN_SUB_QUERIES: int = _get_int("MIN_SUB_QUERIES", 3)
-MAX_SUB_QUERIES: int = _get_int("MAX_SUB_QUERIES", 4)
+MAX_SUB_QUERIES: int = _get_int("MAX_SUB_QUERIES", 3)
 
 # ── Web search (Tavily) ──────────────────────────────────────────────────────
-TAVILY_MAX_RESULTS: int = _get_int("TAVILY_MAX_RESULTS", 4)
+# Kept low so one research run stays under the Gemini free tier's 15 requests/minute cap
+# (fewer docs → fewer grader/extractor calls). Raise these once billing lifts the rate limit.
+TAVILY_MAX_RESULTS: int = _get_int("TAVILY_MAX_RESULTS", 2)
 TAVILY_SEARCH_DEPTH: str = os.getenv("TAVILY_SEARCH_DEPTH", "advanced")
 # Truncate very long page content before sending to the LLM (token / cost / TPM control).
 MAX_CONTENT_CHARS: int = _get_int("MAX_CONTENT_CHARS", 4000)
